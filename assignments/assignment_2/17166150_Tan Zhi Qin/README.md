@@ -1,7 +1,7 @@
 
 # Build a Game-playing Agent
 
-# [Heuristic Analysis Report can be found here](WID170047 Tan Zhi Qin report.pdf).
+# [Heuristic Analysis Report can be found here](WID170047%20Tan%20Zhi%20Qin%20report.pdf)
 
 ## Synopsis
 
