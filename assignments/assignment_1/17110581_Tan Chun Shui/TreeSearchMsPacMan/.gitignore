@@ -8,6 +8,8 @@
 .idea/vcs.xml
 .idea/jsLibraryMappings.xml
 
+.settings/org.eclipse.jdt.core.prefs
+.classpath
 
 # Sensitive or high-churn files:
 .idea/dataSources.ids

@@ -28,7 +28,7 @@ public class TreeSearchPacMan extends PacmanController {
 	 private Game game;
 	 private int pacmanCurrentNodeIndex;
 	 MOVE pacmanLastMoveMade; 
-	 int pathLengthBase = 94; // 70, 70 // Make it longer when no pills around
+	 int pathLengthBase = 120; // 70, 70 // Make it longer when no pills around
 	 int minGhostDistanceBase = 100; // 80, 100
 	 private List<Path> paths = new ArrayList<>();
 	 

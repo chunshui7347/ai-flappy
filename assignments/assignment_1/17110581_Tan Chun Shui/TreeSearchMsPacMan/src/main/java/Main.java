@@ -4,7 +4,7 @@ import examples.StarterGhostComm.Inky;
 import examples.StarterGhostComm.Pinky;
 import examples.StarterGhostComm.Sue;
 import examples.StarterPacMan.*;
-import examples.monteCarlo.MonteCarloController;
+import examples.monteCarlo.*;
 import pacman.Executor;
 import pacman.controllers.IndividualGhostController;
 import pacman.controllers.MASController;
@@ -25,7 +25,7 @@ public class Main {
         Executor executor = new Executor.Builder()
                 .setVisual(true)
                 .setPacmanPO(false)
-                .setTickLimit(10000)
+                .setTickLimit(30000)
                 .setScaleFactor(3) // Increase game visual size
                 .setPOType(POType.RADIUS) // pacman sense objects around it in a radius wide fashion instead of straight line sights
                 .setSightLimit(5000) // The sight radius limit, set to maximum 
