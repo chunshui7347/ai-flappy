@@ -7,6 +7,7 @@ Following are the cell selection method implemented:
 2. Random (Prim's)
 3. Middle
 4. Oldest
+
 We can observe that the "newest" method yield long winding paths with more dead ends while using "random" method, we get more junctions leading to different path.
 For "middle" and "oldest" method, the maze generated will have long straight path which is not a very good maze as it is very easy to follow.
 
