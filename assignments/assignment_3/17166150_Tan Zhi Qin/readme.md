@@ -35,7 +35,7 @@ There are three methods to evaluate the maze generation algorithm
 
 ## Evaluation Results
 The PCG maze generation is evaluated with actual player. The results at the end of each game is saved as csv in [this](./Evaluation%20Results) folder.
-Table below summarize the average of each selection method:
+Table below summarize the average of each selection method over a few runs:
 
 | Cell Selection Method           | Total Dead Ends | Shortest Distance to Exit | Time Taken to Complete (s) |
 |---------------------------------|----------------:|--------------------------:|---------------------------:|
