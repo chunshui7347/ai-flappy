@@ -3,7 +3,7 @@ This is a mini group project for course WID3009
 
 ## TODO: 
 * add description for mini project
-* code a forward model from the base game
+* ~~code a forward model from the base game~~
 * implement ai algorithm (probably genetic algorithm + mlp)
 
 ## Course Assignments
