@@ -1,50 +1,13 @@
-import os
 import random
 from itertools import cycle
-
-os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 
 import pygame
 from PIL import Image
 
-SCREENWIDTH = 288
-SCREENHEIGHT = 512
-PIPEGAPSIZE = 100  # gap between upper and lower part of pipe
-BASEY = SCREENHEIGHT * 0.79
+from src.basegame_flappy import SCREENWIDTH, SCREENHEIGHT, PIPEGAPSIZE, BASEY, PLAYERS_LIST, BACKGROUNDS_LIST, \
+    PIPES_LIST, getHitmask, getRandomPipe, checkCrash, pixelCollision
 
-# list of all possible players (tuple of 3 positions of flap)
-PLAYERS_LIST = (
-    # red bird
-    (
-        '../assets/sprites/redbird-upflap.png',
-        '../assets/sprites/redbird-midflap.png',
-        '../assets/sprites/redbird-downflap.png',
-    ),
-    # blue bird
-    (
-        '../assets/sprites/bluebird-upflap.png',
-        '../assets/sprites/bluebird-midflap.png',
-        '../assets/sprites/bluebird-downflap.png',
-    ),
-    # yellow bird
-    (
-        '../assets/sprites/yellowbird-upflap.png',
-        '../assets/sprites/yellowbird-midflap.png',
-        '../assets/sprites/yellowbird-downflap.png',
-    ),
-)
-
-# list of backgrounds
-BACKGROUNDS_LIST = (
-    '../assets/sprites/background-day.png',
-    '../assets/sprites/background-night.png',
-)
-
-# list of pipes
-PIPES_LIST = (
-    '../assets/sprites/pipe-green.png',
-    '../assets/sprites/pipe-red.png',
-)
+MAX_SCORE = 100000
 
 try:
     xrange
@@ -91,7 +54,7 @@ def forward(model):
     basex = 0
     playerIndexGen = cycle([0, 1, 2, 1])
 
-    score = playerIndex = loopIter = 0
+    score = playerIndex = loopIter = travelled = 0
 
     baseShift = IMAGES['base'].width - IMAGES['background'].width
 
@@ -121,9 +84,17 @@ def forward(model):
     playerFlapped = False  # True when player flaps
 
     while True:
-        # TODO get model input and output here
-        jump = True
-        if jump:
+        if score >= MAX_SCORE:
+            return score, travelled
+        # input are player y, velocity, dist to next pipe, upper pipe height, lower pipe height
+        nextPipeIndex = getNextPipe(playerx, upperPipes, IMAGES['pipe'][0].width)
+        inputs = [playery / SCREENHEIGHT, playerVelY / playerMaxVelY,
+                  (upperPipes[nextPipeIndex]['x'] - playerx) / SCREENWIDTH,
+                  (lowerPipes[nextPipeIndex]['y'] - PIPEGAPSIZE) / SCREENHEIGHT,
+                  (SCREENHEIGHT - lowerPipes[nextPipeIndex]['y']) / SCREENHEIGHT]
+        pred = model.predict([inputs])[0]
+        # flap if pred >= 0.5
+        if pred >= 0.5:
             if playery > -2 * IMAGES['player'][0].height:
                 playerVelY = playerFlapAcc
                 playerFlapped = True
@@ -132,7 +103,7 @@ def forward(model):
         crashTest = checkCrash({'x': playerx, 'y': playery, 'index': playerIndex},
                                upperPipes, lowerPipes, IMAGES, HITMASKS)
         if crashTest[0]:
-            return score, crashTest[1], playery, upperPipes, lowerPipes, playerVelY
+            return score, travelled
 
         # check for score
         playerMidPos = playerx + IMAGES['player'][0].width / 2
@@ -153,6 +124,8 @@ def forward(model):
         if playerFlapped:
             playerFlapped = False
 
+        travelled += 1
+
         playerHeight = IMAGES['player'][playerIndex].height
         playery += min(playerVelY, BASEY - playery - playerHeight)
 
@@ -171,6 +144,13 @@ def forward(model):
         if len(upperPipes) > 0 and upperPipes[0]['x'] < -IMAGES['pipe'][0].width:
             upperPipes.pop(0)
             lowerPipes.pop(0)
+
+
+def getNextPipe(playerx, pipes, pipeWidth):
+    """returns the index of the next pipe"""
+    for i, pipe in enumerate(pipes):
+        if pipe['x'] + pipeWidth > playerx:
+            return i
 
 
 def getRandomPipe(IMAGES):
@@ -223,23 +203,6 @@ def checkCrash(player, upperPipes, lowerPipes, IMAGES, HITMASKS):
     return [False, False]
 
 
-def pixelCollision(rect1, rect2, hitmask1, hitmask2):
-    """Checks if two objects collide and not just their rects"""
-    rect = rect1.clip(rect2)
-
-    if rect.width == 0 or rect.height == 0:
-        return False
-
-    x1, y1 = rect.x - rect1.x, rect.y - rect1.y
-    x2, y2 = rect.x - rect2.x, rect.y - rect2.y
-
-    for x in xrange(rect.width):
-        for y in xrange(rect.height):
-            if hitmask1[x1 + x][y1 + y] and hitmask2[x2 + x][y2 + y]:
-                return True
-    return False
-
-
 def getHitmask(image):
     """returns a hitmask using an image's alpha."""
     mask = []
@@ -248,7 +211,3 @@ def getHitmask(image):
         for y in xrange(image.height):
             mask[x].append(bool(image.getpixel((x, y))[3]))
     return mask
-
-
-if __name__ == '__main__':
-    print(forward(None))
