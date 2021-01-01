@@ -9,23 +9,22 @@ from itertools import cycle
 import matplotlib.pyplot as plt
 import numpy as np
 import pygame
-import tensorflow as tf
 from PIL import Image
 from pygame.locals import *
 
 from src.basegame_flappy import SCREENWIDTH, SCREENHEIGHT, PIPEGAPSIZE, BASEY, pixelCollision, getHitmask
 from src.util import make_model
 
-FPS = 30
-MAX_SCORE = 1000
+FPS = 120  # use higher value for faster simulation, default is 30
+MAX_SCORE = 1000  # maximum score as stop condition
 # image, sound and hitmask
 IMAGES, SOUNDS, HITMASKS = {}, {}, {}
 
-resume_previous = False
-save_current_pool = True
+resume_previous = False  # resume from previous run
+save_current_pool = True  # save current pool to resume later
 pool_dir = '../data/current_pool'
 os.makedirs(pool_dir, exist_ok=True)
-total_models = 20
+total_models = 50
 max_generation = 100
 
 # change if resume from previous
@@ -35,16 +34,30 @@ best_idx_so_far = -1
 
 
 def save_pool():
+    """
+    method to save pools
+    """
     for i in range(total_models):
         with open(os.path.join(pool_dir, 'model_{}.pickle'.format(i)), 'wb') as f:
             pickle.dump(current_pool[i], f)
 
 
 def crossover(weights1, weights2):
-    # cross over weights of first layer by randomly swapping weights
+    """
+    cross over weights of layers by randomly swapping weights (ignore biases)
+
+    :param weights1: list of weights of parent 1
+    :type weights1: list[np.ndarray]
+    :param weights2: list of weights of parent 2
+    :type weights2: list[np.ndarray]
+    :return: np.ndarray of cross overed weights
+    :rtype: list[list[np.ndarray]]
+    """
     ori_shape = weights1[0].shape
     weights1[0] = weights1[0].flatten()
     weights2[0] = weights2[0].flatten()
+    weights1[2] = weights1[2].flatten()
+    weights2[2] = weights2[2].flatten()
     weightsnew1 = copy.deepcopy(weights1)
     weightsnew2 = copy.deepcopy(weights2)
     indexes = random.sample(range(len(weights1[0])), len(weights1[0]) // 2)
@@ -54,23 +67,53 @@ def crossover(weights1, weights2):
     weightsnew2[0] = weightsnew2[0].reshape(ori_shape)
     weights1[0] = weights1[0].reshape(ori_shape)
     weights2[0] = weights2[0].reshape(ori_shape)
+
+    ori_shape = weights1[2].shape
+    indexes = random.sample(range(len(weights1[2])), len(weights1[2]) // 2)
+    weightsnew1[2][indexes] = weights2[2][indexes]
+    weightsnew2[2][indexes] = weights1[2][indexes]
+    weightsnew1[2] = weightsnew1[2].reshape(ori_shape)
+    weightsnew2[2] = weightsnew2[2].reshape(ori_shape)
+    weights1[2] = weights1[2].reshape(ori_shape)
+    weights2[2] = weights2[2].reshape(ori_shape)
     return np.asarray([weightsnew1, weightsnew2])
 
 
-def mutate(weights, mutation_rate=0.15):
-    # randomly mutate each synapse weight and biases based on mutation rate
+def mutate(weights, mutation_rate=0.1):
+    """
+    randomly mutate each synapse weight and biases based on mutation rate
+    :param weights: list of weights to mutate
+    :type weights: list[np.ndarray]
+    :param mutation_rate: mutation probability between 0 and 1
+    :type mutation_rate: float
+    :return: mutated weights
+    :rtype: list[np.ndarray]
+    """
     for i in range(len(weights)):
         for j in range(len(weights[i])):
             if random.uniform(0, 1) < mutation_rate:
-                change = random.uniform(-0.5, 0.5)
+                change = random.uniform(-0.25, 0.25)
                 weights[i][j] += change
     return weights
 
 
 def predict_jump(height, dist, pipe_height, model_num):
+    """
+
+    :param height: height of bird
+    :type height: int
+    :param dist: horizontal distance to next pipe
+    :type dist: int
+    :param pipe_height: height of next pipe
+    :type pipe_height: int
+    :param model_num: index of model to use from pool
+    :type model_num: int
+    :return: boolean to jump or not
+    :rtype: bool
+    """
     # the height, dist and pipe_height scaled to 0 to 1
     height = min(SCREENHEIGHT, height) / SCREENHEIGHT
-    dist = dist / 450  # max pipe distance from player will be 450 (first pipe that is out of screen)
+    dist = dist / SCREENWIDTH
     pipe_height = min(SCREENHEIGHT, pipe_height) / SCREENHEIGHT
     inputs = [height, dist, pipe_height]
     model.set_weights(current_pool[model_num])
@@ -128,7 +171,14 @@ PIPES_LIST = (
 
 
 def main(save_video=False, log=True):
-    if log:
+    """
+
+    :param save_video: boolean to save the simulation as video (for review), save to '../data/learning.mp4'
+    :type save_video: bool
+    :param log: boolean to save fitness history to log file at '../data/log.txt'
+    :type log: bool
+    """
+    if log and not resume_previous:
         with open(os.path.join('..', 'data', 'log.txt'), 'w') as f:
             f.write('history fitness\n')
     global SCREEN, FPSCLOCK
@@ -233,12 +283,16 @@ def main(save_video=False, log=True):
             if save_video:
                 proc.stdin.close()
                 proc.wait()
+            if log:
+                with open(os.path.join('..', 'data', 'log.txt'), 'a') as f:
+                    f.write('{}\n'.format(fitness[best_idx]))
             break
         else:
             showGameOverScreen(log)
 
 
 def mainGame(movementInfo, save_video):
+    """main simulation code"""
     global fitness
     if save_video:
         global proc
@@ -279,6 +333,9 @@ def mainGame(movementInfo, save_video):
     playerFlapAcc = -9  # players speed on flapping
     playersFlapped = [False] * total_models  # True when player flaps
     playerIsAlive = [True] * total_models  # True if player is still alive
+    playerRot = [45] * total_models  # player's rotation
+    playerVelRot = 3  # angular speed
+    playerRotThr = 20  # rotation threshold
 
     alive_players = total_models
 
@@ -350,12 +407,20 @@ def mainGame(movementInfo, save_video):
         loopIter = (loopIter + 1) % 30
         basex = -((-basex + 100) % baseShift)
 
+        # rotate the player
+        for idx in range(total_models):
+            if playerIsAlive[idx]:
+                if playerRot[idx] > -90:
+                    playerRot[idx] -= playerVelRot
+
         # player's movement
         for idx in range(total_models):
             if playerIsAlive[idx]:
                 if playersVelY[idx] < playerMaxVelY and not playersFlapped[idx]:
                     playersVelY[idx] += playersAccY[idx]
                 if playersFlapped[idx]:
+                    # more rotation to cover the threshold (calculated in visible rotation)
+                    playerRot[idx] = 45
                     playersFlapped[idx] = False
                 playerHeight = IMAGES['player'][playerIndex].get_height()
                 playersYList[idx] += min(playersVelY[idx], BASEY - playersYList[idx] - playerHeight)
@@ -386,9 +451,15 @@ def mainGame(movementInfo, save_video):
         SCREEN.blit(IMAGES['base'], (basex, BASEY))
         # print score so player overlaps the score
         showScore(max(scores))
+
+        # Player rotation has a threshold
         for idx in range(total_models):
             if playerIsAlive[idx]:
-                SCREEN.blit(IMAGES['player'][playerIndex], (playersXList[idx], playersYList[idx]))
+                visibleRot = playerRotThr
+                if playerRot[idx] <= playerRotThr:
+                    visibleRot = playerRot[idx]
+                playerSurface = pygame.transform.rotate(IMAGES['player'][playerIndex], visibleRot)
+                SCREEN.blit(playerSurface, (playersXList[idx], playersYList[idx]))
 
         showInfo(sum(playerIsAlive))
         pygame.display.update()
@@ -400,7 +471,7 @@ def mainGame(movementInfo, save_video):
 
 
 def showGameOverScreen(log):
-    """crossover and mutate here"""
+    """crossover and mutation logic"""
     global current_pool
     global fitness
     global generation
@@ -421,12 +492,12 @@ def showGameOverScreen(log):
                 pickle.dump(current_pool[best_idx_so_far], f)
 
     # roulette selection
-    for select in range(total_models):
-        total_fitness += fitness[select]
-    for select in range(total_models):
-        fitness[select] /= total_fitness
-        if select > 0:
-            fitness[select] += fitness[select - 1]
+    for idx in range(total_models):
+        total_fitness += fitness[idx]
+    for idx in range(total_models):
+        fitness[idx] /= total_fitness
+        if idx > 0:
+            fitness[idx] += fitness[idx - 1]
     for select in range(int(total_models / 2)):
         parent1 = random.uniform(0, 1)
         parent2 = random.uniform(0, 1)
@@ -445,9 +516,9 @@ def showGameOverScreen(log):
         updated_weights2 = mutate(new_weights1[1])
         new_weights.append(updated_weights1)
         new_weights.append(updated_weights2)
-    for select in range(len(new_weights)):
-        fitness[select] = -1
-        current_pool[select] = new_weights[select]
+    for idx in range(len(new_weights)):
+        fitness[idx] = -1
+        current_pool[idx] = new_weights[idx]
     if save_current_pool:
         save_pool()
     generation = generation + 1
@@ -469,7 +540,7 @@ def getRandomPipe():
 
 
 def showInfo(alive_count):
-    """show genetic algo info"""
+    """show genetic algo info on pygame screen"""
     fsize = 10
     default_font = pygame.font.get_default_font()
     font_renderer = pygame.font.Font(default_font, fsize)
@@ -537,14 +608,14 @@ def checkCrash(players, playerIsAlive, upperPipes, lowerPipes):
 
 
 if __name__ == '__main__':
-    with tf.device('/cpu:0'):
-        main(save_video=True)
+    main(save_video=True)
 
     with open(os.path.join('..', 'data', 'log.txt'), 'r') as f:
         lines = f.read()
     data = list(map(int, lines.strip().split('\n')[1:]))
     plt.figure(figsize=(8, 8))
     plt.plot(data)
+    plt.plot([0, len(data)], [data[0], np.mean(data[-3:])])
     plt.xlabel('Fitness')
     plt.ylabel('Generation')
     plt.savefig(os.path.join('..', 'data', 'fitness.png'))
