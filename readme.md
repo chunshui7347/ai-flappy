@@ -78,7 +78,7 @@ model achieves the maximum score of 1000 and the algorithm stops there.
 
 ### Generation vs Fitness Plot
 Plot below demonstrate how fitness value improves through generations. The red-dotted line shows the general trend of the fitness
-value.
+value. Some small fluctation are seen in the graph because of random mutation and also because of the randomness in the flappy bird game
 ![fitness graph](./data/fitness.png)
 
 
