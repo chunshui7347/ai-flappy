@@ -54,7 +54,8 @@ If output value is greater than 0.5, then the bird jump, else it does not jump.
 
 ## Training Results
 In 67 generations, the algorithm reached the maximum score stop condition and the best model achieved a score of 1000.
-The genetic algorithm can be summarized into 3 phases:
+The whole learning process is recorded [here](https://drive.google.com/file/d/1NAuT_1OBedczvRX1utEVtOEox4ruBcWP/view).
+In short, the genetic algorithm can be summarized into 3 phases:
 
 ### Phase 1
 At the initial phase, all models are randomly initialized and thus perform random actions and does not even pass 
