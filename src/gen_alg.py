@@ -401,7 +401,7 @@ def mainGame(movementInfo, save_video):
                         next_pipe_x = lowerPipes[pipe_idx + 1]['x'] + IMAGES['pipe'][0].get_width()
                         next_pipe_hole_y = (lowerPipes[pipe_idx + 1]['y'] + (
                                 upperPipes[pipe_idx + 1]['y'] + IMAGES['pipe'][pipe_idx + 1].get_height())) / 2
-                        scores[idx] += 1
+                        scores[idx] += 1  # reward for surviving
                         if scores[idx] >= MAX_SCORE:
                             return idx
                         fitness[idx] += 50  # reward for passing pipes
