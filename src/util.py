@@ -2,7 +2,7 @@ import numpy as np
 
 
 def make_model():
-    return MLP(3, 7, 1)
+    return MLP(4, 5, 1)
 
 
 class MLP:

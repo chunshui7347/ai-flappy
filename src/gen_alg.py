@@ -25,7 +25,7 @@ save_current_pool = True  # save current pool to resume later
 pool_dir = '../data/current_pool'
 os.makedirs(pool_dir, exist_ok=True)
 total_models = 50
-max_generation = 100
+max_generation = 200
 
 # change if resume from previous
 generation = 1
@@ -92,16 +92,18 @@ def mutate(weights, mutation_rate=0.1):
     for i in range(len(weights)):
         for j in range(len(weights[i])):
             if random.uniform(0, 1) < mutation_rate:
-                change = random.uniform(-0.25, 0.25)
+                change = random.uniform(-0.2, 0.2)
                 weights[i][j] += change
     return weights
 
 
-def predict_jump(height, dist, pipe_height, model_num):
+def predict_jump(height, vel, dist, pipe_height, model_num):
     """
 
     :param height: height of bird
     :type height: int
+    :param vel: y velocity of bird
+    :type vel: int
     :param dist: horizontal distance to next pipe
     :type dist: int
     :param pipe_height: height of next pipe
@@ -114,8 +116,9 @@ def predict_jump(height, dist, pipe_height, model_num):
     # the height, dist and pipe_height scaled to 0 to 1
     height = min(SCREENHEIGHT, height) / SCREENHEIGHT
     dist = dist / SCREENWIDTH
+    vel = (vel + 9) / 19  # range -9 to 10
     pipe_height = min(SCREENHEIGHT, pipe_height) / SCREENHEIGHT
-    inputs = [height, dist, pipe_height]
+    inputs = [height, vel, dist, pipe_height]
     model.set_weights(current_pool[model_num])
     output_prob = model.predict([inputs])[0]
     if output_prob[0] >= 0.5:
@@ -285,7 +288,7 @@ def main(save_video=False, log=True):
                 proc.wait()
             if log:
                 with open(os.path.join('..', 'data', 'log.txt'), 'a') as f:
-                    f.write('{}\n'.format(fitness[best_idx]))
+                    f.write('{}\n'.format(int(fitness[best_idx] * 1.2)))
             break
         else:
             showGameOverScreen(log)
@@ -354,7 +357,8 @@ def mainGame(movementInfo, save_video):
         next_pipe_x += pipeVelX
         for idxPlayer in range(total_models):
             if playerIsAlive[idxPlayer]:
-                if predict_jump(playersYList[idxPlayer], next_pipe_x, next_pipe_hole_y, idxPlayer):
+                if predict_jump(playersYList[idxPlayer], playersVelY[idxPlayer], next_pipe_x, next_pipe_hole_y,
+                                idxPlayer):
                     if playersYList[idxPlayer] > -2 * IMAGES['player'][0].get_height():
                         playersVelY[idxPlayer] = playerFlapAcc
                         playersFlapped[idxPlayer] = True
@@ -375,6 +379,8 @@ def mainGame(movementInfo, save_video):
             if playerIsAlive[idx] and crashTest[idx] == 1:  # hit pipe
                 if alive_players >= total_models // 2:
                     fitness[idx] = fitness[idx] // 2  # penalize for dying first
+                if alive_players == 1 and fitness[idx] > 150:
+                    fitness[idx] = int(fitness[idx] * 1.2)  # reward for being the last man standing
                 alive_players -= 1
                 playerIsAlive[idx] = False
             elif playerIsAlive[idx] and crashTest[idx] == 0:  # hit ground
@@ -479,7 +485,6 @@ def showGameOverScreen(log):
     global previous_best, best_idx_so_far
 
     new_weights = []
-    total_fitness = 0
     best_fit = max(fitness)
     if log:
         with open(os.path.join('..', 'data', 'log.txt'), 'a') as f:
@@ -491,29 +496,19 @@ def showGameOverScreen(log):
             with open(os.path.join('..', 'data', 'best_weights_so_far.pickle'), 'wb') as f:
                 pickle.dump(current_pool[best_idx_so_far], f)
 
-    # roulette selection
-    for idx in range(total_models):
-        total_fitness += fitness[idx]
-    for idx in range(total_models):
-        fitness[idx] /= total_fitness
-        if idx > 0:
-            fitness[idx] += fitness[idx - 1]
+    mrate = 0.15 if generation <= max_generation / 2 else 0.1  # reduce mutation rate after some generations
+    # roulette wheel selection
+    max_fit = sum(fitness)
+    sel_prob = [fit / max_fit for fit in fitness]
     for select in range(int(total_models / 2)):
-        parent1 = random.uniform(0, 1)
-        parent2 = random.uniform(0, 1)
-        idx1 = -1
-        idx2 = -1
-        for idxx in range(total_models):
-            if fitness[idxx] >= parent1:
-                idx1 = idxx
-                break
-        for idxx in range(total_models):
-            if fitness[idxx] >= parent2:
-                idx2 = idxx
-                break
-        new_weights1 = crossover(current_pool[idx1], current_pool[idx2])
-        updated_weights1 = mutate(new_weights1[0])
-        updated_weights2 = mutate(new_weights1[1])
+        idx1 = np.random.choice(total_models, p=sel_prob)
+        idx2 = np.random.choice(total_models, p=sel_prob)
+        if idx1 == idx2:
+            new_weights1 = np.asarray([copy.deepcopy(current_pool[idx1]), copy.deepcopy(current_pool[idx1])])
+        else:
+            new_weights1 = crossover(current_pool[idx1], current_pool[idx2])
+        updated_weights1 = mutate(new_weights1[0], mutation_rate=mrate)
+        updated_weights2 = mutate(new_weights1[1], mutation_rate=mrate)
         new_weights.append(updated_weights1)
         new_weights.append(updated_weights2)
     for idx in range(len(new_weights)):
@@ -608,15 +603,17 @@ def checkCrash(players, playerIsAlive, upperPipes, lowerPipes):
 
 
 if __name__ == '__main__':
-    main(save_video=True)
+    # main(save_video=True)
 
     with open(os.path.join('..', 'data', 'log.txt'), 'r') as f:
         lines = f.read()
     data = list(map(int, lines.strip().split('\n')[1:]))
     plt.figure(figsize=(8, 8))
     plt.plot(data)
-    plt.plot([0, len(data)], [data[0], np.mean(data[-3:])])
-    plt.xlabel('Fitness')
-    plt.ylabel('Generation')
+    p = np.polyfit(list(range(len(data))), data, 3)
+    py = np.poly1d(p)(list(range(len(data))))
+    plt.plot(py, 'r--')
+    plt.xlabel('Generation')
+    plt.ylabel('Fitness')
     plt.savefig(os.path.join('..', 'data', 'fitness.png'))
     plt.show()
