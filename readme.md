@@ -41,16 +41,16 @@ activation function while the output node uses sigmoid activation function.
 
 ## Model Input
 There are 4 inputs to the MLP model:
-1. Height of bird
-2. Y-velocity of bird
-3. Horizontal distance to next pipe
-4. Height of next pipe
+1. Horizontal distance to next pipe
+2. Vertical distance to next pipe
+3. y-velocity of bird
+4. Height Difference between next 2 pipes
 
 Each input is scaled to 0 - 1 by dividing each of its maximum value.
 
 ## Model Output
 The model has 1 output which tells the bird to jump or not. Output has range between 0 and 1 due to sigmoid activation.
-If output value is greater than 0.5, then the bird jump, else it does not jump.
+If output value is greater than 0.75, then the bird jump, else it does not jump.
 
 ## Training Results
 In 67 generations, the algorithm reached the maximum score stop condition and the best model achieved a score of 1000.

@@ -2,6 +2,7 @@ import copy
 import os
 import pickle
 import random
+import time
 import subprocess
 import sys
 from itertools import cycle
@@ -12,11 +13,11 @@ import pygame
 from PIL import Image
 from pygame.locals import *
 
-from src.basegame_flappy import SCREENWIDTH, SCREENHEIGHT, PIPEGAPSIZE, BASEY, pixelCollision, getHitmask
-from src.util import make_model
+from basegame_flappy import SCREENWIDTH, SCREENHEIGHT, PIPEGAPSIZE, BASEY, pixelCollision, getHitmask
+from util import make_model
 
-FPS = 120  # use higher value for faster simulation, default is 30
-MAX_SCORE = 1000  # maximum score as stop condition
+FPS = 60  # use higher value for faster simulation, default is 30
+MAX_SCORE = 20000  # maximum score as stop condition, maximum pipe combination is 142*142 = 20164
 # image, sound and hitmask
 IMAGES, SOUNDS, HITMASKS = {}, {}, {}
 
@@ -31,6 +32,7 @@ max_generation = 200
 generation = 1
 previous_best = -1
 best_idx_so_far = -1
+local_minima_stuck_time = 0
 
 
 def save_pool():
@@ -42,44 +44,37 @@ def save_pool():
             pickle.dump(current_pool[i], f)
 
 
-def crossover(weights1, weights2):
+def crossover(weights1_idx, weights2_idx, uniform_rate=0.5):
     """
-    cross over weights of layers by randomly swapping weights (ignore biases)
+    cross over weights of layers by swapping nodes
 
-    :param weights1: list of weights of parent 1
-    :type weights1: list[np.ndarray]
-    :param weights2: list of weights of parent 2
-    :type weights2: list[np.ndarray]
+    :param weights1_idx: index of parent 1 weights
+    :type weights1_idx: int
+    :param weights2_idx: index of parent 2 weights
+    :type weights2_idx: idx
+    :param uniform_rate: rate of swapping, default is 0.5
+    :type uniform_rate: float
     :return: np.ndarray of cross overed weights
     :rtype: list[list[np.ndarray]]
     """
-    ori_shape = weights1[0].shape
-    weights1[0] = weights1[0].flatten()
-    weights2[0] = weights2[0].flatten()
-    weights1[2] = weights1[2].flatten()
-    weights2[2] = weights2[2].flatten()
+    weights1 = current_pool[weights1_idx]
+    weights2 = current_pool[weights2_idx]
     weightsnew1 = copy.deepcopy(weights1)
-    weightsnew2 = copy.deepcopy(weights2)
-    indexes = random.sample(range(len(weights1[0])), len(weights1[0]) // 2)
-    weightsnew1[0][indexes] = weights2[0][indexes]
-    weightsnew2[0][indexes] = weights1[0][indexes]
-    weightsnew1[0] = weightsnew1[0].reshape(ori_shape)
-    weightsnew2[0] = weightsnew2[0].reshape(ori_shape)
-    weights1[0] = weights1[0].reshape(ori_shape)
-    weights2[0] = weights2[0].reshape(ori_shape)
 
-    ori_shape = weights1[2].shape
-    indexes = random.sample(range(len(weights1[2])), len(weights1[2]) // 2)
-    weightsnew1[2][indexes] = weights2[2][indexes]
-    weightsnew2[2][indexes] = weights1[2][indexes]
-    weightsnew1[2] = weightsnew1[2].reshape(ori_shape)
-    weightsnew2[2] = weightsnew2[2].reshape(ori_shape)
-    weights1[2] = weights1[2].reshape(ori_shape)
-    weights2[2] = weights2[2].reshape(ori_shape)
-    return np.asarray([weightsnew1, weightsnew2])
+    for i in range(len(weightsnew1)):
+        ori_shape = weights1[i].shape
+        weights2[i] = weights2[i].flatten()
+        weightsnew1[i] = weightsnew1[i].flatten()
+        for j in range(len(weightsnew1[i])):
+            if random.random() < uniform_rate:
+                weightsnew1[i] = weights2[i]
+        weights2[i] = weights2[i].reshape(ori_shape)
+        weightsnew1[i] = weightsnew1[i].reshape(ori_shape)
+
+    return weightsnew1
 
 
-def mutate(weights, mutation_rate=0.1):
+def mutate(weights, mutation_rate=0.01):
     """
     randomly mutate each synapse weight and biases based on mutation rate
     :param weights: list of weights to mutate
@@ -91,15 +86,14 @@ def mutate(weights, mutation_rate=0.1):
     """
     for i in range(len(weights)):
         for j in range(len(weights[i])):
-            if random.uniform(0, 1) < mutation_rate:
-                change = random.uniform(-0.2, 0.2)
-                weights[i][j] += change
+            if random.random() < mutation_rate:
+                weights[i][j] += weights[i][j] * (random.random() - 0.5) * 3 + (random.random() - 0.5)
+                # weights[i][j] = np.random.uniform(-1, 1)
     return weights
 
 
-def predict_jump(height, vel, dist, pipe_height, model_num):
+def predict_jump(height, dist, pipe_height, vel, diff_in_pipe, model_num):
     """
-
     :param height: height of bird
     :type height: int
     :param vel: y velocity of bird
@@ -114,17 +108,14 @@ def predict_jump(height, vel, dist, pipe_height, model_num):
     :rtype: bool
     """
     # the height, dist and pipe_height scaled to 0 to 1
-    height = min(SCREENHEIGHT, height) / SCREENHEIGHT
-    dist = dist / SCREENWIDTH
+    dist = min(dist / SCREENWIDTH, 1)
     vel = (vel + 9) / 19  # range -9 to 10
-    pipe_height = min(SCREENHEIGHT, pipe_height) / SCREENHEIGHT
-    inputs = [height, vel, dist, pipe_height]
+    pipe_height = (pipe_height - height) / BASEY
+    diff_in_pipe = diff_in_pipe / BASEY
+    inputs = [dist, pipe_height, vel, diff_in_pipe]
     model.set_weights(current_pool[model_num])
     output_prob = model.predict([inputs])[0]
-    if output_prob[0] >= 0.5:
-        # Perform jump action
-        return True
-    return False
+    return output_prob[0] > 0.75
 
 
 # Initialize all models
@@ -270,7 +261,7 @@ def main(save_video=False, log=True):
             getHitmask(IMAGES['player'][1]),
             getHitmask(IMAGES['player'][2]),
         )
-
+        # random.seed(1234)  # use seed to make each run same, comment out for more randomness
         global fitness
         for idx in range(total_models):
             fitness[idx] = 0
@@ -297,12 +288,13 @@ def main(save_video=False, log=True):
 def mainGame(movementInfo, save_video):
     """main simulation code"""
     global fitness
+    global FPS
     if save_video:
         global proc
     playerIndex = loopIter = 0
     scores = [0] * total_models
     playerIndexGen = movementInfo['playerIndexGen']
-    playersXList = [int(SCREENWIDTH * 0.2)] * total_models
+    playersX = int(SCREENWIDTH * 0.2)
     playersYList = [movementInfo['playery']] * total_models
 
     basex = movementInfo['basex']
@@ -324,8 +316,9 @@ def mainGame(movementInfo, save_video):
         {'x': SCREENWIDTH + 200 + (SCREENWIDTH / 2), 'y': newPipe2[1]['y']},
     ]
 
-    next_pipe_x = lowerPipes[0]['x'] + IMAGES['pipe'][0].get_width()
-    next_pipe_hole_y = (lowerPipes[0]['y'] + (upperPipes[0]['y'] + IMAGES['pipe'][0].get_height())) / 2
+    next_pipe_x = lowerPipes[0]['x'] - (playersX + IMAGES['player'][0].get_width())
+    next_pipe_hole_y = lowerPipes[0]['y']
+    diff_in_pipe = lowerPipes[1]['y'] - lowerPipes[0]['y']
 
     pipeVelX = -4
 
@@ -343,22 +336,28 @@ def mainGame(movementInfo, save_video):
     alive_players = total_models
 
     while True:
+        for event in pygame.event.get():
+            if event.type == KEYDOWN and event.key == K_UP:
+                if FPS < 1000:
+                    FPS *= 2
+            if event.type == KEYDOWN and event.key == K_DOWN:
+                if FPS > 1:
+                    FPS = max(FPS / 2, 1)
         # check if player is off screen
         for idxPlayer in range(total_models):
             if playersYList[idxPlayer] < 0 and playerIsAlive[idxPlayer]:
                 alive_players -= 1
                 playerIsAlive[idxPlayer] = False
-                fitness[idxPlayer] = fitness[idxPlayer] // 2  # penalize for going off screen
+                fitness[idxPlayer] = 1  # penalize for going off screen
         if alive_players == 0:
             return
         for idxPlayer in range(total_models):
             if playerIsAlive[idxPlayer]:
                 fitness[idxPlayer] += 1  # reward for staying alive
-        next_pipe_x += pipeVelX
         for idxPlayer in range(total_models):
             if playerIsAlive[idxPlayer]:
-                if predict_jump(playersYList[idxPlayer], playersVelY[idxPlayer], next_pipe_x, next_pipe_hole_y,
-                                idxPlayer):
+                if predict_jump(playersYList[idxPlayer], next_pipe_x, next_pipe_hole_y, playersVelY[idxPlayer],
+                                diff_in_pipe, idxPlayer):  # predict jump or not for each model
                     if playersYList[idxPlayer] > -2 * IMAGES['player'][0].get_height():
                         playersVelY[idxPlayer] = playerFlapAcc
                         playersFlapped[idxPlayer] = True
@@ -372,21 +371,24 @@ def mainGame(movementInfo, save_video):
                 sys.exit()
 
         # check for crash here, returns status list
-        crashTest = checkCrash({'x': playersXList, 'y': playersYList, 'index': playerIndex}, playerIsAlive,
+        crashTest = checkCrash({'x': playersX, 'y': playersYList, 'index': playerIndex}, playerIsAlive,
                                upperPipes, lowerPipes)
 
         for idx in range(total_models):
             if playerIsAlive[idx] and crashTest[idx] == 1:  # hit pipe
                 if alive_players >= total_models // 2:
-                    fitness[idx] = fitness[idx] // 2  # penalize for dying first
-                if alive_players == 1 and fitness[idx] > 150:
-                    fitness[idx] = int(fitness[idx] * 1.2)  # reward for being the last man standing
+                    if scores[idx] > 0:
+                        fitness[idx] = fitness[idx] // 2  # penalize for dying first
+                    else:
+                        fitness[idx] = 1
+                # if alive_players == 1 and fitness[idx] > 150:
+                #     fitness[idx] = int(fitness[idx] * 1.2)  # reward for being the last man standing
                 alive_players -= 1
                 playerIsAlive[idx] = False
             elif playerIsAlive[idx] and crashTest[idx] == 0:  # hit ground
                 alive_players -= 1
                 playerIsAlive[idx] = False
-                fitness[idx] = fitness[idx] // 2  # penalize for hitting ground
+                fitness[idx] = 1  # penalize for hitting ground
 
         if alive_players == 0:
             return
@@ -394,13 +396,13 @@ def mainGame(movementInfo, save_video):
         # check for score
         for idx in range(total_models):
             if playerIsAlive[idx]:
-                playerMidPos = playersXList[idx]
+                playerMidPos = playersX
                 for pipe_idx in range(len(upperPipes)):
                     pipeMidPos = upperPipes[pipe_idx]['x'] + IMAGES['pipe'][0].get_width()
                     if pipeMidPos <= playerMidPos < pipeMidPos + 4:
-                        next_pipe_x = lowerPipes[pipe_idx + 1]['x'] + IMAGES['pipe'][0].get_width()
-                        next_pipe_hole_y = (lowerPipes[pipe_idx + 1]['y'] + (
-                                upperPipes[pipe_idx + 1]['y'] + IMAGES['pipe'][pipe_idx + 1].get_height())) / 2
+                        next_pipe_x = lowerPipes[pipe_idx + 1]['x'] - (playersX + IMAGES['player'][0].get_width())
+                        next_pipe_hole_y = lowerPipes[pipe_idx + 1]['y']
+                        diff_in_pipe = lowerPipes[pipe_idx + 2]['y'] - lowerPipes[pipe_idx + 1]['y']
                         scores[idx] += 1  # reward for surviving
                         if scores[idx] >= MAX_SCORE:
                             return idx
@@ -435,6 +437,7 @@ def mainGame(movementInfo, save_video):
         for uPipe, lPipe in zip(upperPipes, lowerPipes):
             uPipe['x'] += pipeVelX
             lPipe['x'] += pipeVelX
+        next_pipe_x += pipeVelX
 
         # add new pipe when first pipe is about to touch left of screen
         if 0 < upperPipes[0]['x'] < 5:
@@ -465,7 +468,7 @@ def mainGame(movementInfo, save_video):
                 if playerRot[idx] <= playerRotThr:
                     visibleRot = playerRot[idx]
                 playerSurface = pygame.transform.rotate(IMAGES['player'][playerIndex], visibleRot)
-                SCREEN.blit(playerSurface, (playersXList[idx], playersYList[idx]))
+                SCREEN.blit(playerSurface, (playersX, playersYList[idx]))
 
         showInfo(sum(playerIsAlive))
         pygame.display.update()
@@ -482,8 +485,9 @@ def showGameOverScreen(log):
     global fitness
     global generation
     global previous_best
-    global previous_best, best_idx_so_far
+    global previous_best, best_idx_so_far, local_minima_stuck_time
 
+    # random.seed(time.time())
     new_weights = []
     best_fit = max(fitness)
     if log:
@@ -492,28 +496,40 @@ def showGameOverScreen(log):
     if best_fit > previous_best:
         previous_best = best_fit
         best_idx_so_far = fitness.index(best_fit)
-        if save_current_pool:
-            with open(os.path.join('..', 'data', 'best_weights_so_far.pickle'), 'wb') as f:
-                pickle.dump(current_pool[best_idx_so_far], f)
+        local_minima_stuck_time = 0
+        with open(os.path.join('..', 'data', 'best_weight_so_far.pickle'), 'wb') as f:
+            pickle.dump(current_pool[best_idx_so_far], f)
+    else:
+        local_minima_stuck_time += 1
 
-    mrate = 0.15 if generation <= max_generation / 2 else 0.1  # reduce mutation rate after some generations
+    mrate = 0.1 if previous_best < 500 else 0.05  # increase mutation rate if stuck
+    mrate = min(local_minima_stuck_time / 100, 0.25) if local_minima_stuck_time > 10 else mrate
     # roulette wheel selection
     max_fit = sum(fitness)
     sel_prob = [fit / max_fit for fit in fitness]
-    for select in range(int(total_models / 2)):
+    sorted_idx = np.argsort(fitness)
+    while len(new_weights) < int(total_models / 5 * 4):
+        # idx1 = random.choice([sorted_idx[-1], sorted_idx[-2]])  # force one of parent to be elite
         idx1 = np.random.choice(total_models, p=sel_prob)
         idx2 = np.random.choice(total_models, p=sel_prob)
-        if idx1 == idx2:
-            new_weights1 = np.asarray([copy.deepcopy(current_pool[idx1]), copy.deepcopy(current_pool[idx1])])
-        else:
-            new_weights1 = crossover(current_pool[idx1], current_pool[idx2])
-        updated_weights1 = mutate(new_weights1[0], mutation_rate=mrate)
-        updated_weights2 = mutate(new_weights1[1], mutation_rate=mrate)
-        new_weights.append(updated_weights1)
-        new_weights.append(updated_weights2)
+        if idx1 != idx2:
+            new_weights1 = crossover(idx1, idx2, )
+            new_weights.append(new_weights1)
+    current_pool = np.array(current_pool)[sorted_idx].tolist()
+
+    # eliminate bad genes
     for idx in range(len(new_weights)):
-        fitness[idx] = -1
         current_pool[idx] = new_weights[idx]
+
+    # mutate weights
+    for idx in range(total_models):
+        fitness[idx] = -1
+        if idx < total_models - 1:  # elitism, keep and don't mutate top gene
+            current_pool[idx] = mutate(current_pool[idx], mrate)
+        else:
+            with open(os.path.join('..', 'data', 'best_weight_so_far.pickle'), 'rb') as f:
+                current_pool[idx] = pickle.load(f)
+
     if save_current_pool:
         save_pool()
     generation = generation + 1
@@ -546,6 +562,9 @@ def showInfo(alive_count):
     for i, l in enumerate(lines):
         label = font_renderer.render(l, True, (255, 255, 255))
         SCREEN.blit(label, (5, SCREENHEIGHT - 5 - fsize * (i + 1)))
+    fps = FPSCLOCK.get_fps()
+    SCREEN.blit(font_renderer.render(str(int(fps)), True, (255, 255, 255)),
+                (SCREENWIDTH - 5 - 2 * fsize, SCREENHEIGHT - 5 - fsize))
 
 
 def showScore(score):
@@ -578,7 +597,7 @@ def checkCrash(players, playerIsAlive, upperPipes, lowerPipes):
         # if player crashes into ground
         if players['y'][idx] + players['h'] >= BASEY - 1:
             statuses[idx] = 0
-        playerRect = pygame.Rect(players['x'][idx], players['y'][idx],
+        playerRect = pygame.Rect(players['x'], players['y'][idx],
                                  players['w'], players['h'])
         pipeW = IMAGES['pipe'][0].get_width()
         pipeH = IMAGES['pipe'][0].get_height()
@@ -603,7 +622,7 @@ def checkCrash(players, playerIsAlive, upperPipes, lowerPipes):
 
 
 if __name__ == '__main__':
-    # main(save_video=True)
+    main(save_video=False)
 
     with open(os.path.join('..', 'data', 'log.txt'), 'r') as f:
         lines = f.read()

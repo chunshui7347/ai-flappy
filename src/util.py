@@ -32,6 +32,8 @@ class MLP:
         :type weights: list[numpy.ndarray]
 
         """
+        if weights[0].shape != (self.n_in, self.n_hidden) or weights[2].shape != (self.n_hidden, self.n_out) or weights[1].shape != (self.n_hidden,) or weights[3].shape != (self.n_out,):
+            raise ValueError('Invalid weights shape')
         self.weights = [weights[0].copy(), weights[2].copy()]
         self.biases = [weights[1].copy(), weights[3].copy()]
 
