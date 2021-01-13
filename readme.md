@@ -27,8 +27,8 @@ The settings used in the genetic algorithm is as follows:
   * Fitness function is defined as follows:
     * Reward 1 for each pixel travelled horizontally
     * Reward 50 for each pipe passed
-    * Penalized by dividing two if the model's bird goes off-screen, hit the ground or is the first n birds to hit a pipe. Value of n is half of pool size
-    * Reward by increasing 20% if the model's bird is the last bird standing
+    * Penalized by dividing two if the model's bird goes off-screen, hit the ground or is the first n birds to hit a pipe. Value of n is half of pool size* Reward by increasing 20% if the model's bird is the last bird standing
+  * Elitism: Best performing model is always passed to the next generation
   * Parent selection method: roulette wheel selection
   * Parent cross over method: Uniform crossover (each weight value is randomly swapped between two parents)
   * Mutation rate: 0.15 for the first half generations, 0.1 for the second half generations
